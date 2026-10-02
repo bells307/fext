@@ -1,6 +1,10 @@
+[workspace]
+members = ["fext-core"]
+
 [package]
 name = "fext"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+fext-core = { path = "fext-core" }

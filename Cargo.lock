@@ -5,3 +5,10 @@ version = 4
 [[package]]
 name = "fext"
 version = "0.1.0"
+dependencies = [
+ "fext-core",
+]
+
+[[package]]
+name = "fext-core"
+version = "0.1.0"

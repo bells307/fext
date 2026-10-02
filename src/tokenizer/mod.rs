@@ -1,43 +1,40 @@
+#[cfg(test)]
+mod tests;
+
+use fext_core::Position;
 use std::{
     collections::VecDeque,
     fs::{self, File, ReadDir},
     io::{self, BufRead, BufReader, Lines},
     iter::FusedIterator,
-    marker::PhantomData,
     path::{Path, PathBuf},
 };
 
-struct Tokenizer {}
+pub struct Tokenizer {}
 
 impl Tokenizer {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {}
     }
 
-    /// Обход директории
-    fn walkdir<'a>(&'a self, path: &'a Path) -> io::Result<WalkDir<'a>> {
+    pub fn walkdir(&self, path: &Path) -> io::Result<WalkDir> {
         WalkDir::try_new(path)
     }
 }
 
 /// Итератор для обхода директорий
-struct WalkDir<'a> {
+pub struct WalkDir {
     stack: Vec<ReadDir>,
-    _p: PhantomData<&'a ()>,
 }
 
-impl<'a> WalkDir<'a> {
+impl WalkDir {
     fn try_new(path: &Path) -> io::Result<Self> {
         let rd = fs::read_dir(path)?;
-
-        Ok(Self {
-            stack: vec![rd],
-            _p: PhantomData,
-        })
+        Ok(Self { stack: vec![rd] })
     }
 }
 
-impl<'a> Iterator for WalkDir<'a> {
+impl Iterator for WalkDir {
     type Item = io::Result<FileTokens>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -60,7 +57,7 @@ impl<'a> Iterator for WalkDir<'a> {
                                     continue;
                                 }
                                 Err(e) => {
-                                    self.stack.clear();
+                                    self.stack = Vec::new();
                                     return Some(Err(e));
                                 }
                             }
@@ -84,10 +81,10 @@ impl<'a> Iterator for WalkDir<'a> {
     }
 }
 
-impl<'a> FusedIterator for WalkDir<'a> {}
+impl FusedIterator for WalkDir {}
 
 /// Итератор по токенам файла
-struct FileTokens {
+pub struct FileTokens {
     /// Путь к файлу
     path: PathBuf,
     /// Буфер токенов
@@ -108,7 +105,7 @@ impl FileTokens {
         }
     }
 
-    fn path(&self) -> &Path {
+    pub fn path(&self) -> &Path {
         &self.path
     }
 
@@ -182,17 +179,15 @@ fn push_word(
     word: &str,
     byte_off_in_line: usize,
 ) {
+    let text = word.to_lowercase();
+    let len = text.len();
+
     buf.push_back(Token {
-        text: word.to_string(),
-        pos: CompositePosition {
-            char: Position {
-                off: byte_off + byte_off_in_line,
-                len: word.len(),
-            },
-            word: Position {
-                off: word_off,
-                len: 1,
-            },
+        text,
+        pos: Position {
+            char_off: byte_off + byte_off_in_line,
+            char_len: len,
+            word_off,
         },
     });
 }
@@ -210,59 +205,7 @@ impl Iterator for FileTokens {
 }
 
 #[derive(Debug)]
-struct Token {
-    text: String,
-    pos: CompositePosition,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct Position {
-    off: usize,
-    len: usize,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct CompositePosition {
-    char: Position,
-    word: Position,
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::tokenizer::Tokenizer;
-    use std::{collections::HashMap, path::Path};
-
-    #[test]
-    fn test_tokenizer() {
-        let dir = Path::new("tests/fixtures");
-        let tkn = Tokenizer::new();
-        let wd = tkn.walkdir(dir).unwrap();
-
-        let expected: HashMap<&str, Vec<&str>> = [
-            (
-                "tests/fixtures/dir1/sample.txt",
-                vec!["outdoor", "action", "film", "in"],
-            ),
-            (
-                "tests/fixtures/sample.md",
-                vec!["rust", "is", "my", "favourite", "program", "language"],
-            ),
-            (
-                "tests/fixtures/sample.rs",
-                vec!["the", "big", "cat", "sanctuary"],
-            ),
-        ]
-        .into_iter()
-        .collect();
-
-        for res in wd {
-            let ft = res.unwrap();
-            let path = ft.path().to_str().unwrap().to_string();
-            let exp_tokens = expected
-                .get(path.as_str())
-                .expect(&format!("unexpected file: {path}"));
-            let actual: Vec<String> = ft.map(|t| t.unwrap().text).collect();
-            assert_eq!(&actual, exp_tokens, "mismatch for {path}");
-        }
-    }
+pub struct Token {
+    pub text: String,
+    pub pos: Position,
 }
