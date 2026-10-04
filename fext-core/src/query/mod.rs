@@ -17,6 +17,47 @@ struct QueryParser<'a> {
 }
 
 impl<'a> QueryParser<'a> {
+    fn new(text: &'a str) -> Self {
+        Self {
+            tokens: Lexer::new(text).peekable(),
+        }
+    }
+
+    fn parse(&mut self) -> Result<Option<QueryAst<'a>>, ParseError> {
+        let mut acc = Accumulator::new();
+
+        loop {
+            match self.tokens.peek() {
+                Some(res) => match res {
+                    Ok(Token::Or) => {
+                        self.tokens.next();
+                    }
+                    Ok(Token::LParen) => todo!(),
+                    Ok(Token::RParen) => todo!(),
+                    Ok(Token::Not) => todo!(),
+                    Err(..) => {
+                        let Some(Err(err)) = self.tokens.next() else {
+                            unreachable!()
+                        };
+                        return Err(ParseError::Lex(err));
+                    }
+                    _ => {
+                        if let Some(and) = self.parse_and()? {
+                            acc.push(and);
+                        }
+                    }
+                },
+                None => break,
+            }
+        }
+
+        match acc {
+            Accumulator::Empty => Ok(None),
+            Accumulator::One(one) => Ok(Some(one)),
+            Accumulator::Many(vec) => Ok(Some(QueryAst::Or(vec))),
+        }
+    }
+
     fn parse_factor(&mut self) -> Result<QueryAst<'a>, ParseError> {
         match self.tokens.next().transpose().map_err(ParseError::Lex)? {
             Some(Token::Word(w)) => Ok(QueryAst::Word(w)),
@@ -28,24 +69,36 @@ impl<'a> QueryParser<'a> {
     }
 
     /// Парсинг последовательности
-    fn parse_and(&mut self) -> Result<QueryAst<'a>, ParseError> {
-        // hello world
-        let mut and = vec![self.parse_factor()?];
+    fn parse_and(&mut self) -> Result<Option<QueryAst<'a>>, ParseError> {
+        let mut acc = Accumulator::new();
 
         loop {
-            if let Some(Ok(token)) = self.tokens.peek() {
-                match token {
-                    Token::And => {}
-                    Token::Or => break,
+            match self.tokens.peek() {
+                Some(res) => match res {
+                    Ok(Token::And) => {
+                        self.tokens.next();
+                    }
+                    Ok(Token::Or) => break,
+                    Err(..) => {
+                        let Some(Err(err)) = self.tokens.next() else {
+                            unreachable!()
+                        };
+                        return Err(ParseError::Lex(err));
+                    }
                     _ => {
                         let q = self.parse_factor()?;
-                        and.push(q);
+                        acc.push(q);
                     }
-                }
+                },
+                _ => break,
             }
         }
 
-        Ok(QueryAst::And(and))
+        match acc {
+            Accumulator::Empty => Ok(None),
+            Accumulator::One(one) => Ok(Some(one)),
+            Accumulator::Many(vec) => Ok(Some(QueryAst::And(vec))),
+        }
     }
 }
 
@@ -58,29 +111,94 @@ enum QueryAst<'a> {
     Not(Box<QueryAst<'a>>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum ParseError {
     Lex(LexError),
     UnexpectedEnd,
     UnexpectedToken,
 }
 
-fn parse(text: &str) -> Result<QueryAst, ParseError> {
-    todo!()
+enum Accumulator<T> {
+    Empty,
+    One(T),
+    Many(Vec<T>),
+}
+
+impl<T> Accumulator<T> {
+    fn new() -> Self {
+        Self::Empty
+    }
+
+    fn push(&mut self, v: T) {
+        match self {
+            Self::Empty => *self = Self::One(v),
+            Self::Many(items) => items.push(v),
+            Self::One(_) => {
+                let items = Vec::with_capacity(2);
+                let old = std::mem::replace(self, Self::Many(items));
+
+                if let (Self::One(first), Self::Many(items)) = (old, self) {
+                    items.push(first);
+                    items.push(v);
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn word(s: &str) -> QueryAst<'_> {
+        QueryAst::Word(s)
+    }
+
+    fn and(v: Vec<QueryAst>) -> QueryAst {
+        QueryAst::And(v)
+    }
+
+    fn or(v: Vec<QueryAst>) -> QueryAst {
+        QueryAst::Or(v)
+    }
+
     #[test]
     fn parse_test() {
-        let text = "hello world";
-        let q_ast = parse(text).unwrap();
-        let exp = QueryAst::And(vec![
-            QueryAst::Word("hello".into()),
-            QueryAst::Word("world".into()),
-        ]);
-        assert_eq!(q_ast, exp);
+        let cases = [
+            (
+                "hello world",
+                Ok(Some(and(vec![word("hello"), word("world")]))),
+            ),
+            (
+                "hello AND world",
+                Ok(Some(and(vec![word("hello"), word("world")]))),
+            ),
+            (
+                "hello OR world",
+                Ok(Some(or(vec![word("hello"), word("world")]))),
+            ),
+            (
+                "hello new OR world",
+                Ok(Some(or(vec![
+                    and(vec![word("hello"), word("new")]),
+                    word("world"),
+                ]))),
+            ),
+            (
+                "hello AND brave new OR world",
+                Ok(Some(or(vec![
+                    and(vec![word("hello"), word("brave"), word("new")]),
+                    word("world"),
+                ]))),
+            ),
+            ("", Ok(None)),
+        ];
+
+        for (text, exp) in cases {
+            let res = QueryParser::new(text).parse();
+            if res != exp {
+                panic!("fail: {}\nexpected: {:?}\ngot: {:?}", text, exp, res);
+            }
+        }
     }
 }

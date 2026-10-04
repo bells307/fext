@@ -98,11 +98,3 @@ impl<'a> Token<'a> {
 pub(crate) enum LexError {
     UnclosedQuot,
 }
-
-#[derive(Default, Debug)]
-enum State {
-    #[default]
-    Init,
-    CollectingWord(String),
-    CollectingPhrase(String),
-}
